@@ -13,8 +13,23 @@ def create_bot(token: str | None = None, **kwargs) -> Bot:
     session = None
     if proxy_url:
         from aiogram.client.session.aiohttp import AiohttpSession
-
-        session = AiohttpSession(proxy=proxy_url)
+        
+        if proxy_url.startswith('socks5'):
+            from aiohttp_socks import ProxyConnector
+            import aiohttp
+            
+            class CustomAiohttpSession(AiohttpSession):
+                def __init__(self, socks_proxy: str):
+                    super().__init__()
+                    self.socks_proxy = socks_proxy
+                    
+                async def create_session(self) -> aiohttp.ClientSession:
+                    connector = ProxyConnector.from_url(self.socks_proxy)
+                    return aiohttp.ClientSession(connector=connector)
+                    
+            session = CustomAiohttpSession(socks_proxy=proxy_url)
+        else:
+            session = AiohttpSession(proxy=proxy_url)
 
     kwargs.setdefault('default', DefaultBotProperties(parse_mode=ParseMode.HTML))
     return Bot(token=token or settings.BOT_TOKEN, session=session, **kwargs)
