@@ -67,6 +67,8 @@ services:
 
       TZ: 'Europe/Moscow'
       LOCALES_PATH: '${LOCALES_PATH:-/app/locales}'
+      CABINET_INDEX_PATH: '/app/cabinet/index.html'
+      CABINET_PUBLIC_DIR: '/app/cabinet/public'
     volumes:
       # Логи
       - ./logs:/app/logs:rw
@@ -80,6 +82,8 @@ services:
       - ./uploads:/app/uploads:rw
       # Логотип для сообщений
       - ./vpn_logo.png:/app/vpn_logo.png:ro
+      # Кабинет (для SEO-инъекции в index.html)
+      - ../bedolaga-cabinet:/app/cabinet:rw
     network_mode: "host"
     healthcheck:
       test:

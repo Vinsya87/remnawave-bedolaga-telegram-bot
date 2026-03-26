@@ -307,6 +307,16 @@ class AnalyticsCountersUpdate(BaseModel):
     google_ads_label: str | None = None
 
 
+class CustomCssResponse(BaseModel):
+    """Custom CSS content."""
+    css: str
+
+
+class CustomCssUpdate(BaseModel):
+    """Request to update custom CSS."""
+    css: str
+
+
 # Default theme colors
 DEFAULT_THEME_COLORS = {
     'accent': '#3b82f6',
@@ -786,6 +796,33 @@ async def update_animation_config(
     )
 
     return AnimationConfigResponse(**current)
+
+
+# ============ Custom CSS Routes ============
+
+
+@router.get('/custom-css', response_model=CustomCssResponse)
+async def get_custom_css():
+    """Get current custom CSS."""
+    public_dir = Path(os.environ.get("CABINET_PUBLIC_DIR", "/app/cabinet/public"))
+    css_path = public_dir / "custom.css"
+    if css_path.exists():
+        return CustomCssResponse(css=css_path.read_text(encoding="utf-8"))
+    return CustomCssResponse(css="")
+
+
+@router.put('/custom-css', response_model=CustomCssResponse)
+async def update_custom_css(
+    payload: CustomCssUpdate,
+    admin: User = Depends(require_permission('settings:edit')),
+):
+    """Update custom CSS. Admin only."""
+    public_dir = Path(os.environ.get("CABINET_PUBLIC_DIR", "/app/cabinet/public"))
+    public_dir.mkdir(parents=True, exist_ok=True)
+    css_path = public_dir / "custom.css"
+    css_path.write_text(payload.css, encoding="utf-8")
+    logger.info('Admin updated custom CSS', telegram_id=admin.telegram_id, css_length=len(payload.css))
+    return CustomCssResponse(css=payload.css)
 
 
 # ============ Fullscreen Routes ============

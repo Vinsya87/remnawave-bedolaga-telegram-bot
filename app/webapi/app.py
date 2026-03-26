@@ -42,6 +42,7 @@ from .routes import (
     webhooks,
     websocket,
     welcome_texts,
+    seo,
 )
 
 
@@ -253,6 +254,7 @@ def create_web_api_app() -> FastAPI:
     app.include_router(campaigns.router, prefix='/campaigns', tags=['campaigns'])
     app.include_router(tokens.router, prefix='/tokens', tags=['auth'])
     app.include_router(remnawave.router, prefix='/remnawave', tags=['remnawave'])
+    app.include_router(seo.router, prefix='/seo', tags=['seo'])
     app.include_router(media.router, tags=['media'])
     app.include_router(miniapp.router, prefix='/miniapp', tags=['miniapp'])
     app.include_router(partners.router, prefix='/partners', tags=['partners'])
