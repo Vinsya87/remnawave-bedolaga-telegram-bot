@@ -100,7 +100,7 @@ services:
     image: caddy:alpine
     container_name: remnawave_cabinet_proxy
     restart: unless-stopped
-    command: caddy reverse-proxy --from :80 --to 127.0.0.1:5173
+    command: caddy reverse-proxy --from :80 --to 127.0.0.1:3020
     network_mode: "host"
 
 volumes:

@@ -95,6 +95,27 @@ class Settings(BaseSettings):
     TIMEZONE: str = Field(default_factory=lambda: os.getenv('TZ', 'UTC'))
 
     DATABASE_MODE: str = 'auto'
+    
+    # Жесткое разделение сред
+    ENVIRONMENT: Literal['local', 'test', 'production'] = 'local'
+
+    @field_validator('SQLITE_PATH')
+    @classmethod
+    def validate_sqlite_path(cls, v: str, info) -> str:
+        # Если переменная окружения PRODUCTION=true или ENVIRONMENT=production
+        # Мы ЖЕЛЕЗОБЕТОННО гарантируем, что путь к SQLite будет внутри /app/data/
+        # чтобы избежать случайного удаления базы при перезапуске контейнера Docker.
+        env = os.getenv('ENVIRONMENT', 'local').lower()
+        is_prod = env == 'production' or os.getenv('PRODUCTION', 'false').lower() == 'true'
+        
+        if is_prod:
+            if not v.startswith('/app/data/') and not v.startswith('./data/'):
+                logger.warning(
+                    f"🛑 КРИТИЧЕСКАЯ ОШИБКА КОНФИГУРАЦИИ: В production указан опасный путь к SQLite ({v}). "
+                    f"Он будет перезаписан на /app/data/bot.db для предотвращения потери данных при рестарте контейнера!"
+                )
+                return '/app/data/bot.db'
+        return v
 
     REDIS_URL: str = 'redis://localhost:6379/0'
     CART_TTL_SECONDS: int = 3600  # Время жизни корзины пользователя в Redis (1 час)
@@ -921,6 +942,16 @@ class Settings(BaseSettings):
         return str(log_path)
 
     def get_database_url(self) -> str:
+        env = os.getenv('ENVIRONMENT', 'local').lower()
+        is_prod = env == 'production' or os.getenv('PRODUCTION', 'false').lower() == 'true'
+
+        if is_prod:
+            # ЖЕЛЕЗОБЕТОННО: В production-среде разрешен только PostgreSQL
+            # Полностью игнорируем любые попытки использовать SQLite
+            if self.DATABASE_URL and self.DATABASE_URL.strip() and 'postgresql' in self.DATABASE_URL:
+                return self.DATABASE_URL
+            return self._get_postgresql_url()
+
         if self.DATABASE_URL and self.DATABASE_URL.strip():
             return self.DATABASE_URL
 
