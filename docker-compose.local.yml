@@ -1,4 +1,11 @@
 services:
+  cabinet_proxy:
+    image: caddy:alpine
+    container_name: remnawave_cabinet_proxy
+    restart: unless-stopped
+    command: caddy reverse-proxy --from :80 --to 127.0.0.1:5173
+    network_mode: "host"
+
   postgres:
     image: postgres:15-alpine
     container_name: remnawave_bot_db
@@ -52,6 +59,7 @@ services:
     env_file:
       - .env
     environment:
+      WEB_API_HOST: '0.0.0.0'
       FORCE_COLOR: '1'
       DOCKER_ENV: 'true'
       DATABASE_MODE: 'auto'
