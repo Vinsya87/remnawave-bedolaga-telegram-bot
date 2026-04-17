@@ -1643,6 +1643,46 @@ async def unblock_user(
     return await update_user_status(user_id, request, admin, db)
 
 
+# === Email Verification ===
+
+
+@router.post('/{user_id}/verify-email')
+async def admin_verify_user_email(
+    user_id: int,
+    admin: User = Depends(require_permission('users:edit')),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Force-verify user email (for cases when verification email was not received)."""
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='User not found',
+        )
+
+    if not user.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='User has no email address',
+        )
+
+    if user.email_verified:
+        return {'success': True, 'message': 'Email already verified', 'email': user.email}
+
+    user.email_verified = True
+    user.email_verified_at = datetime.now(UTC)
+    await db.commit()
+
+    logger.info(
+        'Admin force-verified email for user',
+        admin_id=admin.id,
+        user_id=user_id,
+        email=user.email,
+    )
+
+    return {'success': True, 'message': f'Email {user.email} verified successfully', 'email': user.email}
+
+
 # === Restrictions Management ===
 
 
