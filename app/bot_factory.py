@@ -1,4 +1,4 @@
-"""Factory for creating Bot instances with proxy support."""
+"""Factory for creating Bot instances with proxy and custom API server support."""
 
 from urllib.parse import urlsplit, urlunsplit
 
@@ -27,8 +27,8 @@ class SocksAiohttpSession(AiohttpSession):
     a session that asyncio later reports as unclosed.
     """
 
-    def __init__(self, proxy_url: str):
-        super().__init__()
+    def __init__(self, proxy_url: str, **kwargs):
+        super().__init__(**kwargs)
         self.proxy_url, self.rdns = _normalize_socks_proxy_url(proxy_url)
 
     async def close(self):
@@ -66,14 +66,26 @@ class SocksAiohttpSession(AiohttpSession):
 
 
 def create_bot(token: str | None = None, **kwargs) -> Bot:
-    """Create a Bot instance with SOCKS5 proxy session if PROXY_URL is configured."""
+    """Create a Bot instance with SOCKS5 proxy and/or custom Telegram API server."""
     proxy_url = settings.get_proxy_url()
+    telegram_api_url = settings.get_telegram_api_url()
     session = None
-    if proxy_url:
-        if proxy_url.startswith('socks5'):
-            session = SocksAiohttpSession(proxy_url=proxy_url)
+    if proxy_url or telegram_api_url:
+        from aiogram.client.session.aiohttp import AiohttpSession
+        from aiogram.client.telegram import TelegramAPIServer
+
+        session_kwargs: dict = {}
+        if telegram_api_url:
+            session_kwargs['api'] = TelegramAPIServer.from_base(telegram_api_url)
+
+        if proxy_url:
+            if proxy_url.startswith('socks5'):
+                session = SocksAiohttpSession(proxy_url=proxy_url, **session_kwargs)
+            else:
+                session_kwargs['proxy'] = proxy_url
+                session = AiohttpSession(**session_kwargs)
         else:
-            session = AiohttpSession(proxy=proxy_url)
+            session = AiohttpSession(**session_kwargs)
 
     kwargs.setdefault('default', DefaultBotProperties(parse_mode=ParseMode.HTML))
     return Bot(token=token or settings.BOT_TOKEN, session=session, **kwargs)
