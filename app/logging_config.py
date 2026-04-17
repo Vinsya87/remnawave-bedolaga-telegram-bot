@@ -167,5 +167,8 @@ def _configure_noisy_loggers() -> None:
         'uvicorn.protocols.websockets.websockets_impl': logging.WARNING,
         'websockets.server': logging.WARNING,
         'websockets': logging.WARNING,
+        # asyncio спамит «Unclosed client session» при каждом Telegram polling-цикле.
+        # Это известная особенность aiohttp_socks + aiogram, не требующая нотификации.
+        'asyncio': logging.CRITICAL,
     }.items():
         logging.getLogger(name).setLevel(level)

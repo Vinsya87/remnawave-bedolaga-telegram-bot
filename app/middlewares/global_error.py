@@ -229,10 +229,28 @@ async def send_error_to_admin_chat(
         return False
 
     error_type = type(error).__name__
-    error_message = str(error)[:ERROR_MESSAGE_MAX_LENGTH]
+    error_message = str(error)[:ERROR_MESSAGE_MAX_LENGTH].strip()
     tb_str = tb_override or traceback.format_exc()
-    if tb_str == 'NoneType: None\n' or tb_str == 'NoneType: None':
-        tb_str = '(no traceback available)'
+
+    # Фильтруем пустые алерты без трэйсбэка
+    is_empty_tb = not tb_str or tb_str.strip() in ('NoneType: None', 'NoneType: None\n', '(no traceback available)')
+
+    # Извлекаем все данные, если ошибка пустая, чтобы понять причину
+    if not error_message or is_empty_tb:
+        extra_info = ''
+        if hasattr(error, 'event_dict'):
+            import pprint
+            ed = getattr(error, 'event_dict', {})
+            # Убираем огромные или лишние ключи, если нужно, но лучше вывести все
+            safe_ed = {k: v for k, v in ed.items() if k not in ('exc_info',)}
+            extra_info = f"\n[RAW EVENT DATA]:\n{pprint.pformat(safe_ed)}"
+        
+        if not error_message:
+            error_message = "[Empty Message]"
+        if is_empty_tb:
+            tb_str = '(no traceback available)' + extra_info
+        else:
+            tb_str += extra_info
 
     # Добавляем в буфер
     _error_buffer.append((error_type, error_message, tb_str))

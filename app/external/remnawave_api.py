@@ -350,6 +350,7 @@ class RemnaWaveAPI:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.session:
             await self.session.close()
+            self.session = None
 
     async def _make_request(
         self, method: str, endpoint: str, data: dict | None = None, params: dict | None = None

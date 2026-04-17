@@ -57,6 +57,7 @@ LABEL org.opencontainers.image.title="Bedolaga RemnaWave Bot" \
       org.opencontainers.image.vendor="fr1ngg"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/unified', timeout=5).close()" || \
+        python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5).close()" || exit 1
 
 CMD ["python", "main.py"]

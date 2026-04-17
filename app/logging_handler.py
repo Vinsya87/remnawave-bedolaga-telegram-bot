@@ -48,6 +48,8 @@ IGNORED_LOGGER_PREFIXES: Final[tuple[str, ...]] = (
     'uvicorn.protocols',
     'websockets',
     'asyncio',
+    'aiogram.event',
+    'aiogram.dispatcher',
     # Payment modules — isolated to payments.log, must not leak to Telegram
     'app.payments',
     'app.services.payment',
@@ -124,9 +126,10 @@ class TelegramNotifierProcessor:
         if event_dict.get('_admin_notified'):
             return event_dict
 
-        # 3. Filter noisy loggers
+        # 3. Filter noisy loggers and empty events
         logger_name = event_dict.get('logger', '')
-        if any(logger_name.startswith(prefix) for prefix in IGNORED_LOGGER_PREFIXES):
+        event_msg = str(event_dict.get('event', '')).strip()
+        if not event_msg or any(logger_name.startswith(prefix) for prefix in IGNORED_LOGGER_PREFIXES):
             return event_dict
 
         # 4. Resolve exc_info=True to actual tuple while still in except block.

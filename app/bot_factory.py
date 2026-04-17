@@ -1,10 +1,68 @@
 """Factory for creating Bot instances with proxy support."""
 
+from urllib.parse import urlsplit, urlunsplit
+
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession, SERVER_SOFTWARE, USER_AGENT, __version__
 from aiogram.enums import ParseMode
 
 from app.config import settings
+
+
+def _normalize_socks_proxy_url(proxy_url: str) -> tuple[str, bool | None]:
+    """Return a python-socks compatible URL and remote-DNS flag."""
+    parsed = urlsplit(proxy_url)
+    if parsed.scheme != 'socks5h':
+        return proxy_url, None
+
+    return urlunsplit(('socks5', parsed.netloc, parsed.path, parsed.query, parsed.fragment)), True
+
+
+class SocksAiohttpSession(AiohttpSession):
+    """Aiogram aiohttp session backed by aiohttp-socks.
+
+    aiogram's regular AiohttpSession caches and closes its ClientSession.
+    Keep the same lifecycle here; otherwise every Telegram request creates
+    a session that asyncio later reports as unclosed.
+    """
+
+    def __init__(self, proxy_url: str):
+        super().__init__()
+        self.proxy_url, self.rdns = _normalize_socks_proxy_url(proxy_url)
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            # Явно закрываем connector чтобы избежать asyncio-предупреждений
+            # «Unclosed connector» от aiohttp_socks.ProxyConnector при пересоздании сессии.
+            connector = getattr(self._session, 'connector', None)
+            await self._session.close()
+            if connector and not connector.closed:
+                await connector.close()
+        self._session = None
+        await super().close()
+
+    async def create_session(self):
+        import aiohttp
+        from aiohttp_socks import ProxyConnector
+
+        if self._should_reset_connector:
+            await self.close()
+
+        if self._session is None or self._session.closed:
+            connector_kwargs = {}
+            if self.rdns is not None:
+                connector_kwargs['rdns'] = self.rdns
+
+            self._session = aiohttp.ClientSession(
+                connector=ProxyConnector.from_url(self.proxy_url, **connector_kwargs),
+                headers={
+                    USER_AGENT: f'{SERVER_SOFTWARE} aiogram/{__version__}',
+                },
+            )
+            self._should_reset_connector = False
+
+        return self._session
 
 
 def create_bot(token: str | None = None, **kwargs) -> Bot:
@@ -12,22 +70,8 @@ def create_bot(token: str | None = None, **kwargs) -> Bot:
     proxy_url = settings.get_proxy_url()
     session = None
     if proxy_url:
-        from aiogram.client.session.aiohttp import AiohttpSession
-        
         if proxy_url.startswith('socks5'):
-            from aiohttp_socks import ProxyConnector
-            import aiohttp
-            
-            class CustomAiohttpSession(AiohttpSession):
-                def __init__(self, socks_proxy: str):
-                    super().__init__()
-                    self.socks_proxy = socks_proxy
-                    
-                async def create_session(self) -> aiohttp.ClientSession:
-                    connector = ProxyConnector.from_url(self.socks_proxy)
-                    return aiohttp.ClientSession(connector=connector)
-                    
-            session = CustomAiohttpSession(socks_proxy=proxy_url)
+            session = SocksAiohttpSession(proxy_url=proxy_url)
         else:
             session = AiohttpSession(proxy=proxy_url)
 
