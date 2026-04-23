@@ -710,30 +710,52 @@ async def subtract_user_balance(
             await db.refresh(user)
 
         if consume_promo_offer and log_context:
-            try:
-                await log_promo_offer_action(
-                    db,
-                    user_id=user.id,
-                    offer_id=log_context.get('offer_id'),
-                    action='consumed',
-                    source=log_context.get('source'),
-                    percent=log_context.get('percent'),
-                    effect_type=log_context.get('effect_type'),
-                    details=log_context.get('details'),
-                    commit=commit,
-                )
-            except Exception as log_error:  # pragma: no cover - defensive logging
-                logger.warning(
-                    'Failed to record promo offer consumption log for user', user_id=user.id, log_error=log_error
-                )
-                if commit:
-                    try:
-                        await db.rollback()
-                    except Exception as rollback_error:  # pragma: no cover - defensive logging
-                        logger.warning(
-                            'Failed to rollback session after promo offer consumption log failure',
-                            rollback_error=rollback_error,
+            # Пишем лог в ОТДЕЛЬНОЙ сессии, чтобы его commit/rollback не касался
+            # основной сессии caller'а. Иначе rollback в случае фейла логирования
+            # экспайрит объекты сессии и следующее обращение к subscription/user
+            # attrs у caller'а падает с MissingGreenlet.
+            if commit:
+                try:
+                    from app.database.database import AsyncSessionLocal
+
+                    async with AsyncSessionLocal() as log_db:
+                        await log_promo_offer_action(
+                            log_db,
+                            user_id=user.id,
+                            offer_id=log_context.get('offer_id'),
+                            action='consumed',
+                            source=log_context.get('source'),
+                            percent=log_context.get('percent'),
+                            effect_type=log_context.get('effect_type'),
+                            details=log_context.get('details'),
+                            commit=True,
                         )
+                except Exception as log_error:  # pragma: no cover - defensive logging
+                    logger.warning(
+                        'Failed to record promo offer consumption log for user',
+                        user_id=user.id,
+                        log_error=log_error,
+                    )
+            else:
+                # Caller управляет транзакцией — пишем в его сессию без commit.
+                try:
+                    await log_promo_offer_action(
+                        db,
+                        user_id=user.id,
+                        offer_id=log_context.get('offer_id'),
+                        action='consumed',
+                        source=log_context.get('source'),
+                        percent=log_context.get('percent'),
+                        effect_type=log_context.get('effect_type'),
+                        details=log_context.get('details'),
+                        commit=False,
+                    )
+                except Exception as log_error:  # pragma: no cover - defensive logging
+                    logger.warning(
+                        'Failed to record promo offer consumption log for user',
+                        user_id=user.id,
+                        log_error=log_error,
+                    )
 
         logger.info('✅ Средства списаны: →', old_balance=old_balance, balance_kopeks=user.balance_kopeks)
         return True
@@ -1090,6 +1112,12 @@ async def get_users_for_promo_segment(db: AsyncSession, segment: str) -> list[Us
 async def get_inactive_users(db: AsyncSession, months: int = 3) -> list[User]:
     threshold_date = datetime.now(UTC) - timedelta(days=months * 30)
 
+    # Подзапрос: пользователи, у которых есть подписка с end_date >= threshold
+    # (активная или недавно истёкшая) — таких удалять нельзя
+    users_with_recent_subs = (
+        select(Subscription.user_id).where(Subscription.end_date >= threshold_date).distinct().scalar_subquery()
+    )
+
     result = await db.execute(
         select(User)
         .options(
@@ -1098,7 +1126,13 @@ async def get_inactive_users(db: AsyncSession, months: int = 3) -> list[User]:
             selectinload(User.referrer),
             selectinload(User.promo_group),
         )
-        .where(and_(User.last_activity < threshold_date, User.status == UserStatus.ACTIVE.value))
+        .where(
+            and_(
+                User.last_activity < threshold_date,
+                User.status == UserStatus.ACTIVE.value,
+                User.id.not_in(users_with_recent_subs),
+            )
+        )
     )
     users = result.scalars().all()
 
